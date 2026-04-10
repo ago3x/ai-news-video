@@ -73,23 +73,22 @@ ai-news-video/
 | 单段时长 | 5～15 秒 |
 | 风格 | 苹果 Keynote 风，黑底高亮 |
 
-## 常见问题
+## 输出目录结构
 
-**Q: 生成的 `README.md` 里能直接播放视频吗？**
+每次执行后，所有产物保存在 `output/{slug}/` 子目录下：
 
-不能。标准 Markdown 不支持内嵌视频播放，生成的 README 使用普通链接 `[final.mp4](final.mp4)` 形式。点击后由系统默认播放器打开。
-
-若需要播放器，可在支持 HTML 的渲染环境（如本地 HTTP 服务器、GitHub Pages）中将链接手动替换为：
-
-```html
-<video width="100%" controls>
-  <source src="final.mp4" type="video/mp4">
-</video>
+```
+output/
+├── README.md                        ← 总目录（每次自动追加一条记录）
+└── {slug}/                          ← 本次生成目录，如 claude-mythos-20260410/
+    ├── script.json                  ← 口播脚本（Agent 生成）
+    ├── shot1.html ~ shotN.html      ← 分镜页面（Agent 生成）
+    ├── shot1.mp3 ~ shotN.mp3        ← TTS 配音（脚本生成）
+    ├── final.mp4                    ← 成品视频（脚本生成）
+    └── README.md                    ← 本次生成说明（脚本生成）
 ```
 
-> VS Code Markdown 预览默认屏蔽本地视频加载，`<video>` 标签在预览里也不会播放，直接用链接更简洁。
-
----
+其中 `output/{slug}/README.md` 记录了本次生成的主题、时长、分镜脚本和文件链接；`output/README.md` 是历次生成的汇总索引。
 
 ## License
 
