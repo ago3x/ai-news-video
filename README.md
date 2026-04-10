@@ -80,7 +80,7 @@ ai-news-video/
 ```
 output/
 ├── README.md                        ← 总目录（每次自动追加一条记录）
-└── {slug}/                          ← 本次生成目录，如 claude-mythos-20260410/
+└── {slug}/                          ← 本次生成目录，如 claude-mythos/
     ├── script.json                  ← 口播脚本（Agent 生成）
     ├── shot1.html ~ shotN.html      ← 分镜页面（Agent 生成）
     ├── shot1.mp3 ~ shotN.mp3        ← TTS 配音（脚本生成）
