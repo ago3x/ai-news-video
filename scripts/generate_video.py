@@ -14,6 +14,7 @@ import subprocess
 import sys
 import json
 import re
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -21,14 +22,27 @@ DEFAULT_FPS = 20
 DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural"
 
 
+def _log(tag: str, msg: str):
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] [{tag}] {msg}", flush=True)
+
+
+def _elapsed(start: float) -> str:
+    s = time.time() - start
+    return f"{s:.1f}s"
+
+
 def _ffmpeg():
     import shutil
     ff = shutil.which("ffmpeg")
     if ff:
+        _log("ENV", f"使用系统 ffmpeg: {ff}")
         return ff
     try:
         import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        _log("ENV", f"使用 imageio-ffmpeg: {ff}")
+        return ff
     except ImportError:
         raise RuntimeError("找不到 ffmpeg，请安装 ffmpeg 或运行: pip install imageio-ffmpeg")
 
@@ -140,9 +154,14 @@ class VideoPipeline:
         try:
             import edge_tts
         except ImportError:
+            _log("TTS", "edge-tts 未安装，正在自动安装...")
             subprocess.run([sys.executable, "-m", "pip", "install", "edge-tts", "-q"],
                            capture_output=True)
+            _log("TTS", "edge-tts 安装完成")
             import edge_tts
+
+        t0 = time.time()
+        _log("TTS", f"合成中 voice={voice} rate={rate} | 文本: {text[:40]}{'...' if len(text) > 40 else ''}")
 
         async def _run():
             comm = edge_tts.Communicate(text, voice, rate=rate)
@@ -152,6 +171,9 @@ class VideoPipeline:
         if not out.exists():
             raise RuntimeError(f"TTS 生成失败: {out}")
 
+        size_kb = out.stat().st_size / 1024
+        _log("TTS", f"完成 -> {out.name} ({size_kb:.1f}KB) 耗时 {_elapsed(t0)}")
+
     def audio_duration(self, f: Path) -> float:
         fp = _ffprobe()
         if fp:
@@ -159,13 +181,17 @@ class VideoPipeline:
                 fp, "-v", "error", "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1", str(f)
             ], capture_output=True, text=True)
-            return float(r.stdout.strip())
+            dur = float(r.stdout.strip())
+            _log("DUR", f"{f.name} -> {dur:.2f}s")
+            return dur
         r = subprocess.run([_ffmpeg(), "-i", str(f), "-f", "null", "-"],
                            capture_output=True, text=True)
         m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", r.stderr)
         if m:
             h, mi, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
-            return h * 3600 + mi * 60 + s
+            dur = h * 3600 + mi * 60 + s
+            _log("DUR", f"{f.name} -> {dur:.2f}s (ffmpeg fallback)")
+            return dur
         raise RuntimeError(f"无法获取音频时长: {f}")
 
     async def record_html(self, html_file: Path, duration: float) -> Path:
@@ -176,115 +202,165 @@ class VideoPipeline:
         total_frames = int(DEFAULT_FPS * duration)
         url = f"file://{html_file.absolute()}?dur={duration:.2f}"
 
+        _log("REC", f"开始录制 {html_file.name}  时长={duration:.2f}s  帧数={total_frames}")
+        t0 = time.time()
+
         async with async_playwright() as p:
+            _log("REC", "启动 Chromium headless 1080×1920...")
             browser = await p.chromium.launch(headless=True)
             ctx = await browser.new_context(viewport={"width": 1080, "height": 1920})
             page = await ctx.new_page()
+            _log("REC", f"加载页面: {url}")
             await page.goto(url, wait_until="networkidle")
             await asyncio.sleep(0.3)
+
+            _log("REC", f"截帧中 0/{total_frames}...")
             for i in range(total_frames):
                 await page.screenshot(path=str(frames_dir / f"f{i:04d}.png"))
                 await asyncio.sleep(1 / DEFAULT_FPS)
+                if (i + 1) % max(1, total_frames // 5) == 0 or i + 1 == total_frames:
+                    pct = (i + 1) * 100 // total_frames
+                    _log("REC", f"截帧进度 {i+1}/{total_frames} ({pct}%)  已用 {_elapsed(t0)}")
+
             await ctx.close()
             await browser.close()
+            _log("REC", f"截帧完成，共 {total_frames} 帧，耗时 {_elapsed(t0)}")
 
         video_file = self.tmp / f"{html_file.stem}_silent.mp4"
-        subprocess.run([
+        _log("REC", f"编码为无声 MP4: {video_file.name}")
+        t1 = time.time()
+        r = subprocess.run([
             _ffmpeg(), "-y", "-framerate", str(DEFAULT_FPS),
             "-i", str(frames_dir / "f%04d.png"),
             "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
             str(video_file)
-        ], capture_output=True, check=True)
+        ], capture_output=True)
+        if r.returncode != 0:
+            err = r.stderr.decode("utf-8", errors="replace")[-500:]
+            raise RuntimeError(f"ffmpeg 编码失败:\n{err}")
+        size_mb = video_file.stat().st_size / 1024 / 1024
+        _log("REC", f"编码完成 {video_file.name} ({size_mb:.1f}MB) 耗时 {_elapsed(t1)}")
 
         for f in frames_dir.glob("*.png"):
             f.unlink()
         frames_dir.rmdir()
+        _log("REC", f"临时帧目录已清理")
         return video_file
 
     def merge(self, video: Path, audio: Path, out: Path):
         dur = self.audio_duration(audio)
-        subprocess.run([
+        _log("MRG", f"合并 {video.name} + {audio.name} -> {out.name} (音频 {dur:.2f}s)")
+        t0 = time.time()
+        r = subprocess.run([
             _ffmpeg(), "-y",
             "-i", str(video), "-i", str(audio),
             "-c:v", "copy", "-c:a", "aac",
             "-af", f"afade=t=in:st=0:d=0.2,afade=t=out:st={dur - 0.3:.3f}:d=0.3",
             "-shortest", str(out)
-        ], capture_output=True, check=True)
+        ], capture_output=True)
+        if r.returncode != 0:
+            err = r.stderr.decode("utf-8", errors="replace")[-500:]
+            raise RuntimeError(f"音视频合并失败:\n{err}")
+        size_mb = out.stat().st_size / 1024 / 1024
+        _log("MRG", f"完成 {out.name} ({size_mb:.1f}MB) 耗时 {_elapsed(t0)}")
 
     def concat(self, videos: list, out: Path):
+        _log("CAT", f"拼接 {len(videos)} 个片段 -> {out.name}")
+        for i, v in enumerate(videos):
+            _log("CAT", f"  [{i+1}] {Path(v).name}")
         list_file = self.tmp / "concat.txt"
         lines = "\n".join(f"file '{Path(v).absolute().as_posix()}'" for v in videos)
         list_file.write_text(lines, encoding="utf-8")
+        t0 = time.time()
         r = subprocess.run([
             _ffmpeg(), "-y", "-f", "concat", "-safe", "0",
             "-i", str(list_file.absolute()), "-c", "copy", str(out)
         ], capture_output=True)
         if r.returncode != 0:
             raise RuntimeError(f"concat 失败:\n{r.stderr.decode('utf-8', errors='replace')}")
+        size_mb = out.stat().st_size / 1024 / 1024
+        _log("CAT", f"拼接完成 {out.name} ({size_mb:.1f}MB) 耗时 {_elapsed(t0)}")
 
     def cleanup(self):
+        _log("CLN", f"清理临时目录: {self.tmp}")
+        count = 0
         for f in self.tmp.iterdir():
             if f.is_file():
                 f.unlink()
+                count += 1
             elif f.is_dir():
                 for sub in f.iterdir():
                     sub.unlink()
+                    count += 1
                 f.rmdir()
         self.tmp.rmdir()
+        _log("CLN", f"已删除 {count} 个临时文件")
 
     def run(self, script: dict, voice: str = DEFAULT_VOICE, rate: str = "+0%") -> Path:
         shots = script["shots"]
         topic = script.get("topic", "video")
-        print(f"\n[开始] 主题: {topic}\n")
+        total_start = time.time()
 
-        # 1. TTS
-        print("[1/4] TTS 配音...")
+        print(f"\n{'='*60}")
+        print(f"  AI 新闻视频生成管道")
+        print(f"  主题: {topic}")
+        print(f"  镜头数: {len(shots)}  输出目录: {self.run_dir}")
+        print(f"{'='*60}\n")
+
+        # ── 1. TTS ──────────────────────────────────────────────────
+        _log("STEP", f"1/4 TTS 配音  共 {len(shots)} 个镜头")
         audio_files = []
         durations = []
-        for shot in shots:
+        for idx, shot in enumerate(shots, 1):
             audio_out = self.run_dir / f"{shot['id']}.mp3"
-            print(f"   {shot['id']}: {shot['narration'][:30]}...")
+            _log("TTS", f"[{idx}/{len(shots)}] {shot['id']} 文本长度={len(shot['narration'])}字")
             self.tts(shot["narration"], audio_out, voice=voice, rate=rate)
             dur = self.audio_duration(audio_out)
-            print(f"   -> {dur:.1f}s")
             audio_files.append(audio_out)
             durations.append(dur)
-        print()
+        _log("STEP", f"TTS 完成  总时长={sum(durations):.1f}s\n")
 
-        # 2. 录制 HTML
-        print("[2/4] 录制 HTML...")
+        # ── 2. 录制 HTML ─────────────────────────────────────────────
+        _log("STEP", f"2/4 录制 HTML  共 {len(shots)} 个镜头")
         video_files = []
-        for shot, audio in zip(shots, audio_files):
+        for idx, (shot, audio) in enumerate(zip(shots, audio_files), 1):
             html_file = self.run_dir / f"{shot['id']}.html"
             if not html_file.exists():
                 raise FileNotFoundError(f"找不到 {html_file}，请确认 Agent 已生成该 HTML")
             duration = self.audio_duration(audio)
-            print(f"   {shot['id']}.html -> {duration:.1f}s")
+            _log("REC", f"[{idx}/{len(shots)}] {shot['id']}.html  时长={duration:.1f}s")
             video_files.append(asyncio.run(self.record_html(html_file, duration)))
-        print()
+        _log("STEP", f"录制完成\n")
 
-        # 3. 音视频合并
-        print("[3/4] 音视频合并...")
+        # ── 3. 音视频合并 ─────────────────────────────────────────────
+        _log("STEP", f"3/4 音视频合并  共 {len(shots)} 个片段")
         synced = []
-        for shot, video, audio in zip(shots, video_files, audio_files):
+        for idx, (shot, video, audio) in enumerate(zip(shots, video_files, audio_files), 1):
             out = self.tmp / f"{shot['id']}_synced.mp4"
+            _log("MRG", f"[{idx}/{len(shots)}] {shot['id']}")
             self.merge(video, audio, out)
             synced.append(out)
+        _log("STEP", f"合并完成\n")
 
-        # 4. 拼接成品
-        print("[4/4] 拼接输出...")
+        # ── 4. 拼接成品 ───────────────────────────────────────────────
+        _log("STEP", "4/4 拼接最终视频")
         final = self.run_dir / "final.mp4"
         self.concat(synced, final)
         self.cleanup()
 
         size_mb = final.stat().st_size / 1024 / 1024
-        print(f"\n[完成] 视频: {final}  ({size_mb:.1f}MB)")
+        total_elapsed = _elapsed(total_start)
 
-        # 5. 生成 Markdown
+        print(f"\n{'='*60}")
+        _log("DONE", f"成品视频: {final}")
+        _log("DONE", f"文件大小: {size_mb:.1f}MB  总耗时: {total_elapsed}")
+        print(f"{'='*60}\n")
+
+        # ── 5. 生成 Markdown ─────────────────────────────────────────
         write_run_readme(self.run_dir, script, final, durations)
         update_index_readme(self.run_dir.parent, self.run_dir, script, final, sum(durations))
-        print(f"[文档] {self.run_dir}/README.md")
-        print(f"[索引] {self.run_dir.parent}/README.md\n")
+        _log("DOC", f"本次报告: {self.run_dir / 'README.md'}")
+        _log("DOC", f"总目录更新: {self.run_dir.parent / 'README.md'}\n")
 
         return final
 
@@ -297,9 +373,10 @@ def main():
 
     script_path = Path(sys.argv[1])
     if not script_path.exists():
-        print(f"找不到脚本文件: {script_path}")
+        _log("ERR", f"找不到脚本文件: {script_path}")
         sys.exit(1)
 
+    _log("INIT", f"读取脚本: {script_path}")
     script = json.loads(script_path.read_text(encoding="utf-8"))
     run_dir = script_path.parent
 
@@ -311,6 +388,8 @@ def main():
             voice = args[i + 1]
         elif arg == "--rate" and i + 1 < len(args):
             rate = args[i + 1]
+
+    _log("INIT", f"参数  voice={voice}  rate={rate}  run_dir={run_dir}")
 
     pipeline = VideoPipeline(run_dir=run_dir)
     pipeline.run(script, voice=voice, rate=rate)

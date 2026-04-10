@@ -73,6 +73,24 @@ ai-news-video/
 | 单段时长 | 5～15 秒 |
 | 风格 | 苹果 Keynote 风，黑底高亮 |
 
+## 常见问题
+
+**Q: 生成的 `README.md` 里能直接播放视频吗？**
+
+不能。标准 Markdown 不支持内嵌视频播放，生成的 README 使用普通链接 `[final.mp4](final.mp4)` 形式。点击后由系统默认播放器打开。
+
+若需要播放器，可在支持 HTML 的渲染环境（如本地 HTTP 服务器、GitHub Pages）中将链接手动替换为：
+
+```html
+<video width="100%" controls>
+  <source src="final.mp4" type="video/mp4">
+</video>
+```
+
+> VS Code Markdown 预览默认屏蔽本地视频加载，`<video>` 标签在预览里也不会播放，直接用链接更简洁。
+
+---
+
 ## License
 
 MIT
