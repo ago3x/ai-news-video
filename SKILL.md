@@ -66,7 +66,16 @@ description: |
   - 必有：钩子引入（开头）、总结互动（结尾）
   - 可选：功能介绍、数据对比、背景分析、应用场景……根据内容取舍
 
-**输出格式**（保存为 `output/script.json`）：
+**输出目录规则**：
+
+在 Step 2 开始前，先根据主题生成一个英文短标识（slug），格式为 `{关键词}-{YYYYMMDD}`，例如：
+- "OpenAI 发布 GPT-5" → `openai-gpt5-20260410`
+- "A股今日行情" → `a-stock-20260410`
+- "小米 MiMo 模型" → `xiaomi-mimo-20260410`
+
+所有文件（script.json、shot*.html、生成的 mp3/mp4）都保存到 `output/{slug}/` 子目录下。
+
+**输出格式**（保存为 `output/{slug}/script.json`）：
 
 ```json
 {
@@ -104,7 +113,7 @@ description: |
 
 **关键原则**：每个HTML页面的视觉内容必须与对应段口播文案完全匹配——口播提到什么数字、什么功能、什么对比，页面就显示什么。
 
-为 `script.json` 中的**每一个** shot 生成对应的HTML文件，保存到 `output/` 目录，文件名与 `id` 字段一致（如 `shot1.html`、`shot2.html`……）。
+为 `script.json` 中的**每一个** shot 生成对应的HTML文件，保存到 `output/{slug}/` 目录（与 script.json 同级），文件名与 `id` 字段一致（如 `shot1.html`、`shot2.html`……）。
 
 镜头数量由 Step 2 的口播文稿决定，常见版式参考：
 
@@ -372,13 +381,20 @@ let p = 0;
 
 ### Step 4：调用Python脚本完成技术管道
 
-所有HTML写好后，调用：
+所有HTML写好后，调用（注意路径是子目录下的 script.json）：
 
 ```bash
-python scripts/generate_video.py output/script.json
+python scripts/generate_video.py output/{slug}/script.json
 ```
 
-脚本会自动完成：TTS → 切分配音 → 录制HTML → 音视频合并 → 拼接输出。
+例如：
+```bash
+python scripts/generate_video.py output/openai-gpt5-20260410/script.json
+```
+
+脚本会自动完成：TTS → 录制HTML → 音视频合并 → 拼接输出，并生成两个 Markdown：
+- `output/{slug}/README.md`：本次生成说明（脚本、时长、视频链接）
+- `output/README.md`：总目录，追加本次记录
 
 ---
 
@@ -386,33 +402,50 @@ python scripts/generate_video.py output/script.json
 
 脚本 `scripts/generate_video.py` 只负责技术管道，**不生成任何内容**。
 
-**输入**：`output/script.json`（包含口播文稿） + `output/shot1~4.html`（Agent已写好）
+**输入**：`output/{slug}/script.json` + `output/{slug}/shot*.html`（Agent 已写好）
 
 **流程**：
 
 ```
 1. 读取 script.json，提取每段口播文本
    ↓
-2. 对每段文本分别TTS生成配音（shot1.mp3 ~ shot4.mp3）
+2. TTS 生成配音 → output/{slug}/shot*.mp3
    ↓
-3. 用Playwright录制对应HTML（时长 = 对应配音时长）
+3. Playwright 录制对应 HTML（时长 = 配音时长）
    ↓
 4. 音视频逐段合并（淡入淡出）
    ↓
-5. 拼接4段 → 输出成品视频
+5. 拼接 → output/{slug}/final.mp4
+   ↓
+6. 生成 output/{slug}/README.md（本次说明）
+   ↓
+7. 追加更新 output/README.md（总目录）
+```
+
+**输出目录结构**：
+
+```
+output/
+├── README.md                        ← 总目录（自动追加）
+└── openai-gpt5-20260410/
+    ├── script.json
+    ├── shot1.html ~ shotN.html
+    ├── shot1.mp3 ~ shotN.mp3
+    ├── final.mp4                    ← 成品视频
+    └── README.md                    ← 本次说明
 ```
 
 **命令行**：
 
 ```bash
-# 标准用法（读取 output/ 目录下的 script.json 和 shot*.html）
-python scripts/generate_video.py output/script.json
-
-# 指定输出路径
-python scripts/generate_video.py output/script.json --output final.mp4
+# 标准用法
+python scripts/generate_video.py output/openai-gpt5-20260410/script.json
 
 # 指定TTS语音
-python scripts/generate_video.py output/script.json --voice zh-CN-YunxiNeural
+python scripts/generate_video.py output/openai-gpt5-20260410/script.json --voice zh-CN-YunxiNeural
+
+# 指定语速
+python scripts/generate_video.py output/openai-gpt5-20260410/script.json --rate -10%
 ```
 
 ---
