@@ -13,8 +13,9 @@ description: |
   
   **功能**：
   - 自动搜索AI新闻热点
-  - Agent生成口播脚本（分镜文案）
-  - Agent根据脚本编写对应数量的HTML页面（3~6个，由内容决定）
+  - Agent 先生成**详细文案**（长文素材），再据此生成**口播脚本**（分镜）
+  - 生成抖音 / 小红书适用的标题与发布正文
+  - Agent根据口播编写对应数量的HTML页面（3~6个，由内容决定）
   - HTML页面 + Playwright录制
   - TTS配音生成（edge-tts）
   - 音视频智能同步
@@ -29,17 +30,20 @@ description: |
 ┌─────────────────────────────────────┐
 │            Agent 负责               │
 │  1. 搜索新闻 / 理解主题              │
-│  2. 生成口播文稿（N段，由内容决定）   │
-│  3. 根据文稿编写N个HTML页面          │
+│  2. 撰写详细文案（article.md）       │
+│  3. 据文案生成口播脚本（script.json） │
+│  4. 生成抖音/小红书标题与发布文案     │
+│  5. 根据口播编写 N 个 HTML 页面      │
 └──────────────┬──────────────────────┘
-               │ 口播文稿 + HTML文件
+               │ 详细文案 + 口播文稿 + HTML
                ▼
 ┌─────────────────────────────────────┐
 │         Python 脚本负责              │
-│  4. TTS生成配音                     │
-│  5. 按静音点切分配音                 │
-│  6. Playwright录制HTML              │
-│  7. 音视频合并 + 拼接输出            │
+│  6. TTS生成配音                     │
+│  7. 按静音点切分配音                 │
+│  8. Playwright录制HTML              │
+│  9. 音视频合并 + 拼接输出            │
+│ 10. README 写入详细文案与社媒文案     │
 └─────────────────────────────────────┘
 ```
 
@@ -60,9 +64,39 @@ description: |
 
 ---
 
-### Step 2：生成口播文稿
+### Step 2：撰写详细文案（先于口播）
 
-根据新闻内容决定镜头数量，以"每段讲清一个点、节奏不拖沓"为准。
+在写口播、定镜头之前，先把素材写成**一篇完整、可独立阅读的长文案**，保存为：
+
+`output/{slug}/article.md`
+
+**目的**：把搜索到的信息沉淀为结构化正文，作为口播与画面的唯一事实来源，避免口播与详述脱节。
+
+**建议结构**（可按题材增删）：
+
+| 区块 | 内容 |
+|------|------|
+| 标题 | 一句话概括事件 |
+| 导语 | 2~4 句：谁、做了什么、为何重要 |
+| 背景 | 必要的前情与行业语境 |
+| 核心信息 | 分点列出：功能、数据、价格、时间等（带出处或「据公开信息」） |
+| 对比 / 影响 | 与竞品、旧版或市场预期的差异 |
+| 小结 | 对普通观众的一句话 takeaway |
+
+**写作要求**：
+
+- 书面语为主，信息密度高于口播；数字、专有名词写全，便于后续压缩成口播句。
+- 不写分镜、不写「镜头1/镜头2」——本步只做「稿」，不做「演」。
+- 篇幅建议 **400～900 字**（题材复杂可到 1200 字），过短则口播会缺料。
+- 若不便单独维护文件，可将同等正文放入 `script.json` 的 `detailedCopy` 字段（Markdown 字符串）；**二者至少其一**，且以 `article.md` 为准（同时存在时 README 优先收录文件）。
+
+---
+
+### Step 3：根据详细文案生成口播文稿
+
+**输入**：`article.md`（及 Step 1 的要点笔记）。**禁止**跳过详细文案直接写口播。
+
+根据详细文案决定镜头数量，以「每段讲清一个点、节奏不拖沓」为准；口播中的事实、数字必须与 `article.md` 一致，不可编造。
 
 ---
 
@@ -172,18 +206,52 @@ description: |
 
 **输出目录规则**：
 
-在 Step 2 开始前，先根据主题生成一个英文短标识（slug），格式为 `{关键词}-{YYYYMMDD}`，例如：
+在开始写入 `output/{slug}/` 任何文件前，先根据主题生成一个英文短标识（slug），格式为 `{关键词}-{YYYYMMDD}`，例如：
 - "OpenAI 发布 GPT-5" → `openai-gpt5-20260410`
 - "A股今日行情" → `a-stock-20260410`
 - "小米 MiMo 模型" → `xiaomi-mimo-20260410`
 
-所有文件（script.json、shot*.html、生成的 mp3/mp4）都保存到 `output/{slug}/` 子目录下。
+所有文件（`article.md`、`script.json`、`shot*.html`、生成的 mp3/mp4）都保存到 `output/{slug}/` 子目录下。
+
+---
+
+#### 社媒发布文案（抖音 / 小红书）
+
+在写完口播、组装 `script.json` 时，基于 **article.md + 口播要点** 生成社媒元数据，并写入 `script.json` 的 `social` 字段（Python 会一并写入本次 `README.md`）。
+
+| 平台 | 标题 | 正文 |
+|------|------|------|
+| **抖音** | 2～3 条备选，每条 **≤30 字**，强钩子、留悬念、适合竖屏封面字 | 短段落 + **#话题**；口语化；可引导评论 |
+| **小红书** | 2～3 条备选，可稍长，**emoji 适度**（不过密） | 「种草/资讯」口吻：痛点 + 信息点 + 互动提问；结尾 **3～6 个 # 标签** |
+
+**注意**：社媒正文可与口播相似但不必逐句相同；需符合各站规范（无绝对化医疗功效承诺、不造谣）。
+
+---
 
 **输出格式**（保存为 `output/{slug}/script.json`）：
 
 ```json
 {
   "topic": "OpenAI 发布 GPT-5",
+  "social": {
+    "douyin": {
+      "titles": [
+        "GPT-5 来了，价格却让人沉默",
+        "等了一年，OpenAI 这次放了什么大招",
+        "免费还能撑多久？这条说清"
+      ],
+      "caption": "推理暴涨、价格分级……你最关心哪一条？评论区见。#OpenAI #GPT5 #人工智能",
+      "topics": ["#OpenAI", "#GPT5", "#人工智能"]
+    },
+    "xiaohongshu": {
+      "titles": [
+        "一文读懂 GPT-5 发布｜价格与能力怎么选",
+        "等了一年的 GPT-5：哪些升级真的影响普通人？"
+      ],
+      "caption": "熬夜看完发布会，帮你把核心信息压缩成一条笔记～\n\n✅ 能力亮点\n✅ 各档定价\n✅ 和上一代差在哪\n\n你会冲 Pro 还是继续白嫖？👇\n\n#OpenAI #GPT5 #AI工具 #效率神器 #科技资讯",
+      "topics": ["#OpenAI", "#GPT5", "#AI工具", "#效率神器", "#科技资讯"]
+    }
+  },
   "shots": [
     {
       "id": "shot1",
@@ -211,15 +279,17 @@ description: |
 
 > 此示例为 4 镜头版（有功能亮点 + 价格对比，信息量适中）。如果新闻内容更简单，应该用 3 个镜头；如果有更多维度（时间线、多模型对比、生态影响），应该用 5~6 个镜头。**不要默认复制这个结构**，先做镜头数量决策再写文案。`shots` 数组可多可少，Python 脚本自动处理。
 
+> **一致性**：`social` 与 `shots` 须与 `article.md` 事实一致；若某条口播未在详细文案中出现，应回到 `article.md` 补全或删改口播。
+
 ---
 
-### Step 3：根据口播文稿编写HTML页面
+### Step 4：根据口播文稿编写HTML页面
 
 **关键原则**：每个HTML页面的视觉内容必须与对应段口播文案完全匹配——口播提到什么数字、什么功能、什么对比，页面就显示什么。
 
 为 `script.json` 中的**每一个** shot 生成对应的HTML文件，保存到 `output/{slug}/` 目录（与 script.json 同级），文件名与 `id` 字段一致（如 `shot1.html`、`shot2.html`……）。
 
-镜头数量由 Step 2 的口播文稿决定，常见版式参考：
+镜头数量由 Step 3 的口播文稿决定，常见版式参考：
 
 | type 建议值 | 适用场景 | 版式示意 |
 |------------|---------|---------|
@@ -512,7 +582,7 @@ let p = 0;
 
 ---
 
-### Step 4：调用Python脚本完成技术管道
+### Step 5：调用Python脚本完成技术管道
 
 所有HTML写好后，调用（注意路径是子目录下的 script.json）：
 
@@ -526,7 +596,7 @@ python scripts/generate_video.py output/openai-gpt5-20260410/script.json
 ```
 
 脚本会自动完成：TTS → 录制HTML → 音视频合并 → 拼接输出，并生成两个 Markdown：
-- `output/{slug}/README.md`：本次生成说明（脚本、时长、视频链接）
+- `output/{slug}/README.md`：本次生成说明（**含完整详细文案** `article.md` 嵌入或路径、`social` 抖音/小红书标题与正文）、分镜表、视频链接
 - `output/README.md`：总目录，追加本次记录
 
 ---
@@ -535,12 +605,12 @@ python scripts/generate_video.py output/openai-gpt5-20260410/script.json
 
 脚本 `scripts/generate_video.py` 只负责技术管道，**不生成任何内容**。
 
-**输入**：`output/{slug}/script.json` + `output/{slug}/shot*.html`（Agent 已写好）
+**输入**：`output/{slug}/script.json` + `output/{slug}/shot*.html`（Agent 已写好）；可选 `output/{slug}/article.md`（详细文案，供 README 全文收录）
 
 **流程**：
 
 ```
-1. 读取 script.json，提取每段口播文本
+1. 读取 script.json，提取每段口播文本（及 social，供 README）
    ↓
 2. TTS 生成配音 → output/{slug}/shot*.mp3
    ↓
@@ -550,7 +620,7 @@ python scripts/generate_video.py output/openai-gpt5-20260410/script.json
    ↓
 5. 拼接 → output/{slug}/final.mp4
    ↓
-6. 生成 output/{slug}/README.md（本次说明）
+6. 生成 output/{slug}/README.md（本次说明 + 详细文案 + 抖音/小红书）
    ↓
 7. 追加更新 output/README.md（总目录）
 ```
@@ -561,11 +631,12 @@ python scripts/generate_video.py output/openai-gpt5-20260410/script.json
 output/
 ├── README.md                        ← 总目录（自动追加）
 └── openai-gpt5-20260410/
-    ├── script.json
+    ├── article.md                   ← 详细文案（Agent 生成，README 会收录正文）
+    ├── script.json                  ← 含 topic、social、shots
     ├── shot1.html ~ shotN.html
     ├── shot1.mp3 ~ shotN.mp3
     ├── final.mp4                    ← 成品视频
-    └── README.md                    ← 本次说明
+    └── README.md                    ← 本次说明（含文案与社媒发布）
 ```
 
 **命令行**：
@@ -605,7 +676,7 @@ playwright install chromium
 ## 常见问题
 
 **Q: 口播和画面内容对不上？**  
-A: 检查Step 3是否严格按照口播文稿来写HTML，每段口播的关键词必须在对应HTML中有对应的视觉元素。
+A: 检查 Step 4 是否严格按照口播文稿来写 HTML；并核对口播是否与 `article.md` 一致。每段口播的关键词必须在对应 HTML 中有对应的视觉元素。
 
 **Q: 配音节奏太快/太慢？**  
 A: 调整口播文稿字数（50字≈5秒，100字≈10秒），或在调用脚本时加 `--rate -10%` 减速。

@@ -5,7 +5,8 @@ AI新闻短视频全自动生成工具，适用于任何支持 Agent Skills 的 
 从一个新闻主题，到成品竖屏短视频（1080×1920），全程 Agent 驱动：
 
 ```
-新闻主题 → 搜索 → 口播文稿 → HTML 分镜 → TTS 配音 → 录制 → 成品 MP4
+新闻主题 → 搜索 → 详细文案（article.md）→ 口播脚本（script.json）→ 抖音/小红书文案
+         → HTML 分镜 → TTS 配音 → 录制 → 成品 MP4 → README（含文案与社媒）
 ```
 
 ## 支持的平台
@@ -81,14 +82,15 @@ ai-news-video/
 output/
 ├── README.md                        ← 总目录（每次自动追加一条记录）
 └── {slug}/                          ← 本次生成目录，如 claude-mythos/
-    ├── script.json                  ← 口播脚本（Agent 生成）
+    ├── article.md                   ← 详细文案（Agent 生成，长文素材）
+    ├── script.json                  ← topic + social（抖音/小红书）+ 口播 shots（Agent 生成）
     ├── shot1.html ~ shotN.html      ← 分镜页面（Agent 生成）
     ├── shot1.mp3 ~ shotN.mp3        ← TTS 配音（脚本生成）
     ├── final.mp4                    ← 成品视频（脚本生成）
-    └── README.md                    ← 本次生成说明（脚本生成）
+    └── README.md                    ← 本次说明：含详细文案正文、社媒标题/正文、分镜表
 ```
 
-其中 `output/{slug}/README.md` 记录了本次生成的主题、时长、分镜脚本和文件链接；`output/README.md` 是历次生成的汇总索引。
+其中 `output/{slug}/README.md` 由 `generate_video.py` 生成，**嵌入** `article.md` 全文（若存在），并写入 `script.json` 中的抖音、小红书标题与发布文案；`output/README.md` 是历次生成的汇总索引。
 
 ## License
 

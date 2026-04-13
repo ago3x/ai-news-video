@@ -67,6 +67,10 @@ def _ffprobe():
 
 # ── Markdown 工具 ──────────────────────────────────────────────────────────────
 
+def _escape_md_table_cell(s: str) -> str:
+    return s.replace("|", "｜").replace("\n", "<br>")
+
+
 def write_run_readme(run_dir: Path, script: dict, final_video: Path, durations: list):
     """在本次执行目录下生成 README.md"""
     topic = script.get("topic", "未命名")
@@ -83,13 +87,76 @@ def write_run_readme(run_dir: Path, script: dict, final_video: Path, durations: 
         f"",
         f"[{final_video.name}]({final_video.name})",
         f"",
-        f"## 分镜脚本",
+    ]
+
+    article_path = run_dir / "article.md"
+    detailed = script.get("detailedCopy")
+    if article_path.exists():
+        body = article_path.read_text(encoding="utf-8").strip()
+        lines += [
+            "## 详细文案",
+            "",
+            f"源文件：[article.md](article.md)",
+            "",
+            body,
+            "",
+        ]
+    elif detailed:
+        lines += [
+            "## 详细文案",
+            "",
+            str(detailed).strip(),
+            "",
+        ]
+
+    social = script.get("social") or {}
+    dy = social.get("douyin") or social.get("抖音")
+    xhs = social.get("xiaohongshu") or social.get("小红书")
+    if dy:
+        lines += ["## 抖音发布", ""]
+        titles = dy.get("titles") or dy.get("title")
+        if titles:
+            if isinstance(titles, str):
+                lines.append(f"- **标题备选**：{titles}")
+            else:
+                lines.append("**标题备选**：")
+                for t in titles:
+                    lines.append(f"- {t}")
+            lines.append("")
+        cap = dy.get("caption") or dy.get("body") or ""
+        if cap:
+            lines += ["**正文**：", "", cap.strip(), ""]
+        topics = dy.get("topics") or []
+        if topics:
+            lines.append("**话题**： " + " ".join(topics) if isinstance(topics, list) else f"**话题**： {topics}")
+            lines.append("")
+    if xhs:
+        lines += ["## 小红书发布", ""]
+        titles = xhs.get("titles") or xhs.get("title")
+        if titles:
+            if isinstance(titles, str):
+                lines.append(f"- **标题备选**：{titles}")
+            else:
+                lines.append("**标题备选**：")
+                for t in titles:
+                    lines.append(f"- {t}")
+            lines.append("")
+        cap = xhs.get("caption") or xhs.get("body") or ""
+        if cap:
+            lines += ["**正文**：", "", cap.strip(), ""]
+        topics = xhs.get("topics") or []
+        if topics:
+            lines.append("**话题**： " + " ".join(topics) if isinstance(topics, list) else f"**话题**： {topics}")
+            lines.append("")
+
+    lines += [
+        f"## 分镜脚本（口播）",
         f"",
         f"| 镜头 | 类型 | 时长 | 口播文稿 |",
         f"|------|------|------|---------|",
     ]
     for shot, dur in zip(shots, durations):
-        narration = shot["narration"].replace("|", "｜")
+        narration = _escape_md_table_cell(shot["narration"])
         lines.append(f"| [{shot['id']}]({shot['id']}.html) | `{shot['type']}` | {dur:.1f}s | {narration} |")
 
     lines += [
