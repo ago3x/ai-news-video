@@ -74,6 +74,21 @@ ai-news-video/
 | 单段时长 | 5～15 秒 |
 | 风格 | 苹果 Keynote 风，黑底高亮 |
 
+## 视觉主题
+
+Agent 根据新闻内容自动选择视觉主题，也可通过命令行指定：
+
+```bash
+python scripts/generate_video.py output/xxx/script.json --style cyber
+```
+
+| 主题 | 适用场景 |
+|------|---------|
+| `apple`（默认）| AI/科技/产品发布，黑底蓝点缀 |
+| `cyber` | 开源/编程/极客，深色底绿描边 |
+| `media` | 财经/资讯，深灰底琥珀强调 |
+| `light` | 生活/消费/小红书，白底粉点缀 |
+
 ## 输出目录结构
 
 每次执行后，所有产物保存在 `output/{slug}/` 子目录下：
