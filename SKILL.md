@@ -64,6 +64,79 @@ description: |
 
 ---
 
+### Step 1.5：图片采集（搜索完成后立即执行）
+
+在写 `article.md` 之前，对主要信息来源页面执行图片采集，将素材保存到 `output/{slug}/images/`。
+
+#### 采集方式
+
+**方式一：全页截图**
+
+用 Playwright 对目标 URL（新闻原文、GitHub 仓库主页等）截取全屏快照，保存为 `images/page-screenshot.png`：
+
+```python
+from playwright.sync_api import sync_playwright
+from pathlib import Path
+
+def capture_page(url: str, out_path: Path):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page.goto(url, wait_until="networkidle", timeout=30000)
+        page.screenshot(path=str(out_path), full_page=False)
+        browser.close()
+
+# 保存为：output/{slug}/images/page-screenshot.png
+```
+
+**方式二：提取页面图片**
+
+从页面中筛选有实质内容的 `<img>`，过滤掉图标（宽高 < 100px）、SVG、data URI，下载前 3～5 张到 `images/img-001.jpg` 等：
+
+```python
+import urllib.request
+from pathlib import Path
+
+def extract_images(page, out_dir: Path, max_count: int = 5):
+    imgs = page.query_selector_all('img')
+    saved = 0
+    for img in imgs:
+        src = img.get_attribute('src') or ''
+        w = int(img.get_attribute('width') or 0)
+        h = int(img.get_attribute('height') or 0)
+        if src.startswith('data:') or src.endswith('.svg'):
+            continue
+        if w < 100 or h < 100:
+            continue
+        ext = 'jpg' if ('jpg' in src or 'jpeg' in src) else 'png'
+        dest = out_dir / f"img-{saved+1:03d}.{ext}"
+        try:
+            urllib.request.urlretrieve(src, dest)
+            saved += 1
+        except Exception:
+            continue
+        if saved >= max_count:
+            break
+```
+
+#### 失败处理
+
+- 若目标页面截图失败（超时、反爬、登录墙），跳过截图，不中断后续流程
+- 若图片提取为 0，后续 HTML 改用纯文字模板，不使用 `image-caption` / `split-image`
+- 采集失败时在日志中注明：`[IMAGES] 采集失败，降级为纯文字模板`
+
+#### 输出结构
+
+```
+output/{slug}/images/
+  ├── page-screenshot.png    # 全页截图（可选）
+  ├── img-001.jpg            # 提取图片 1
+  ├── img-002.jpg            # 提取图片 2
+  └── ...
+```
+
+---
+
 ### Step 2：撰写详细文案（先于口播）
 
 在写口播、定镜头之前，先把素材写成**一篇完整、可独立阅读的长文案**，保存为：
