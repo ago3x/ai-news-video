@@ -78,10 +78,11 @@ def write_run_readme(run_dir: Path, script: dict, final_video: Path, durations: 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     total_dur = sum(durations)
 
+    style = script.get("style", "apple")
     lines = [
         f"# {topic}",
         f"",
-        f"> 生成时间：{now}　|　总时长：{total_dur:.1f}s　|　共 {len(shots)} 个镜头",
+        f"> 生成时间：{now}　|　总时长：{total_dur:.1f}s　|　共 {len(shots)} 个镜头　|　主题：{style}",
         f"",
         f"## 成品视频",
         f"",
@@ -446,8 +447,9 @@ class VideoPipeline:
 
 def main():
     if len(sys.argv) < 2:
-        print("用法: python generate_video.py <output/{slug}/script.json> [--voice <音色>] [--rate <语速>]")
-        print("示例: python generate_video.py output/openai-news-20260410/script.json")
+        print("用法: python generate_video.py <output/{slug}/script.json> [--voice <音色>] [--rate <语速>] [--style <主题>]")
+        print("主题可选: apple | cyber | media | light（默认 apple，可在 script.json 中设置，命令行参数优先）")
+        print("示例: python generate_video.py output/openai-news-20260410/script.json --style cyber")
         sys.exit(1)
 
     script_path = Path(sys.argv[1])
@@ -461,18 +463,27 @@ def main():
 
     voice = DEFAULT_VOICE
     rate = "+0%"
+    style = None
     args = sys.argv[2:]
     for i, arg in enumerate(args):
         if arg == "--voice" and i + 1 < len(args):
             voice = args[i + 1]
         elif arg == "--rate" and i + 1 < len(args):
             rate = args[i + 1]
+        elif arg == "--style" and i + 1 < len(args):
+            style = args[i + 1]
+
+    # --style 命令行参数覆盖 script.json 中的 style 字段
+    if style:
+        script["style"] = style
+    elif "style" not in script:
+        script["style"] = "apple"
 
     if not re.match(r'^[+-]\d+%$', rate):
         _log("ERR", f"--rate 格式错误: '{rate}'，正确格式如 '+0%' 或 '-10%'")
         sys.exit(1)
 
-    _log("INIT", f"参数  voice={voice}  rate={rate}  run_dir={run_dir}")
+    _log("INIT", f"参数  voice={voice}  rate={rate}  style={script['style']}  run_dir={run_dir}")
 
     pipeline = VideoPipeline(run_dir=run_dir)
     asyncio.run(pipeline.run(script, voice=voice, rate=rate))
